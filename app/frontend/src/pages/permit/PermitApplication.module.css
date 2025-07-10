@@ -1,0 +1,260 @@
+.permitApplication {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+    background-color: #ffffff;
+}
+
+.header {
+    margin-bottom: 32px;
+    text-align: center;
+}
+
+.title {
+    color: #323130;
+    margin-bottom: 8px;
+}
+
+.subtitle {
+    color: #605e5c;
+}
+
+.messageBar {
+    margin-bottom: 24px;
+}
+
+.progressIndicator {
+    margin: 16px 0;
+}
+
+.formContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.section {
+    background-color: #faf9f8;
+    border: 1px solid #edebe9;
+    border-radius: 8px;
+    padding: 24px;
+}
+
+.sectionHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.sectionTitle {
+    color: #323130;
+    font-weight: 600;
+}
+
+.autoFillButton {
+    min-width: 180px;
+}
+
+.formGroup {
+    margin-top: 24px;
+}
+
+.field {
+    width: 100%;
+}
+
+.fieldWithButton {
+    display: flex;
+    gap: 12px;
+    align-items: end;
+}
+
+.fieldGrow {
+    flex: 1;
+}
+
+.validateButton {
+    min-width: 100px;
+    height: 32px;
+}
+
+.inlineFields {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+.inlineField {
+    width: 100%;
+}
+
+.submitSection {
+    text-align: center;
+    padding: 32px 0;
+    border-top: 1px solid #edebe9;
+}
+
+.submitButton {
+    min-width: 200px;
+    height: 44px;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+/* Fee table styles */
+.calculateButton {
+    min-width: 150px;
+    margin-bottom: 16px;
+}
+
+.feeHelpText {
+    color: #605e5c;
+    margin-left: 12px;
+    margin-top: 8px;
+}
+
+.feesTable {
+    border: 1px solid #edebe9;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: #ffffff;
+}
+
+.tableHeader {
+    display: grid;
+    grid-template-columns: 150px 1fr 120px 120px 100px;
+    background-color: #f3f2f1;
+    border-bottom: 1px solid #edebe9;
+}
+
+.columnHeader {
+    padding: 12px 8px;
+    font-weight: 600;
+    color: #323130;
+    border-right: 1px solid #edebe9;
+}
+
+.columnHeader:last-child {
+    border-right: none;
+}
+
+.tableRow {
+    display: grid;
+    grid-template-columns: 150px 1fr 120px 120px 100px;
+    border-bottom: 1px solid #edebe9;
+}
+
+.tableRow:last-child {
+    border-bottom: none;
+}
+
+.tableCell {
+    padding: 8px;
+    border-right: 1px solid #edebe9;
+    display: flex;
+    align-items: center;
+}
+
+.tableCell:last-child {
+    border-right: none;
+}
+
+.feeField {
+    width: 100%;
+    min-height: unset;
+}
+
+.removeButton {
+    min-width: 60px;
+    height: 28px;
+    font-size: 12px;
+}
+
+.tableFooter {
+    padding: 12px 8px;
+    background-color: #f8f8f8;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid #edebe9;
+}
+
+.addFeeButton {
+    min-width: 80px;
+    height: 32px;
+}
+
+.totalAmount {
+    font-weight: 600;
+    color: #323130;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .permitApplication {
+        padding: 16px;
+    }
+
+    .section {
+        padding: 16px;
+    }
+
+    .sectionHeader {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .fieldWithButton {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .inlineFields {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .autoFillButton,
+    .validateButton {
+        min-width: unset;
+        width: 100%;
+    }
+
+    .tableHeader,
+    .tableRow {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .tableCell {
+        border-right: none;
+        border-bottom: 1px solid #edebe9;
+        padding: 8px 12px;
+    }
+
+    .tableCell:last-child {
+        border-bottom: none;
+    }
+
+    .tableFooter {
+        flex-direction: column;
+        gap: 12px;
+        align-items: stretch;
+    }
+}
+
+@media (max-width: 480px) {
+    .permitApplication {
+        padding: 12px;
+    }
+
+    .section {
+        padding: 12px;
+    }
+
+    .formGroup {
+        margin-top: 16px;
+    }
+}
