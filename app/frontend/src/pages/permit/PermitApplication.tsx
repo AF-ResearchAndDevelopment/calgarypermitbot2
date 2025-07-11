@@ -362,12 +362,12 @@ const PermitApplication: React.FC = () => {
     return (
         <div className={styles.permitApplication}>
             <Helmet>
-                <title>Building Permit Application - Calgary</title>
+                <title>Permit Application - Calgary</title>
             </Helmet>
 
             <div className={styles.header}>
                 <Text variant="xxLarge" className={styles.title}>
-                    Building Permit Application
+                    Permit Application
                 </Text>
                 <Text variant="medium" className={styles.subtitle}>
                     Complete the form below to submit your building permit application
