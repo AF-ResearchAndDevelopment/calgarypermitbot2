@@ -68,7 +68,7 @@ Write-Host "Starting backend"
 Write-Host ""
 Set-Location ../backend
 
-$port = 50505
+$port = 8080
 $hostname = "localhost"
 Start-Process -FilePath $venvPythonPath -ArgumentList "-m quart --app main:app run --port $port --host $hostname --reload" -Wait -NoNewWindow
 

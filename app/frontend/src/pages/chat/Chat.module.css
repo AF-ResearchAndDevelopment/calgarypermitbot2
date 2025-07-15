@@ -34,11 +34,13 @@
     font-weight: 600;
     margin-top: 0;
     margin-bottom: 1.875rem;
+    color: var(--primary-color);
 }
 
 .chatEmptyStateSubtitle {
     font-weight: 600;
     margin-bottom: 0.625rem;
+    color: var(--calgary-dark-gray);
 }
 
 .chatMessageStream {

@@ -32,14 +32,7 @@ import {
     PermitFee,
     Document
 } from "../../api/permitModels";
-import {
-    createPermitApplicationApi,
-    getAutoFillDataApi,
-    validateAddressApi,
-    getTradesmanDataApi,
-    calculatePermitFeesApi,
-    getAutoFillFieldDataApi
-} from "../../api/permitApi";
+import { createPermitApplicationApi, getAutoFillDataApi, getTradesmanDataApi, calculatePermitFeesApi, getAutoFillFieldDataApi } from "../../api/permitApi";
 
 interface AutoFillData {
     applicantName?: string;
@@ -162,24 +155,6 @@ const PermitApplication: React.FC = () => {
         }
     };
 
-    const handleValidateAddress = async (address: string) => {
-        if (!address.trim()) return;
-
-        try {
-            const token = await getToken(instance);
-            const isValid = await validateAddressApi(address, token);
-
-            if (!isValid) {
-                setMessage({ text: "Address validation failed. Please verify the address.", type: MessageBarType.warning });
-            } else {
-                setMessage({ text: "Address validated successfully", type: MessageBarType.success });
-            }
-        } catch (error) {
-            console.error("Address validation failed:", error);
-            setMessage({ text: "Address validation failed", type: MessageBarType.error });
-        }
-    };
-
     const handleTradesmanLookup = async (tradesmanId: string) => {
         if (!tradesmanId.trim()) return;
 
@@ -233,18 +208,21 @@ const PermitApplication: React.FC = () => {
 
     // Handle form submission
     const handleSubmit = async () => {
+        console.log("=== SUBMIT BUTTON CLICKED ===");
+        console.log("handleSubmit function invoked");
+        console.log("Form data:", formData);
+
         try {
             setIsLoading(true);
             setMessage(null);
 
-            // Basic validation
-            if (!formData.jobAddress || !formData.jobName || !formData.applicantName) {
-                setMessage({ text: "Please fill in all required fields", type: MessageBarType.error });
-                return;
-            }
-
+            console.log("Getting token...");
             const token = await getToken(instance);
+            console.log("Token obtained:", token ? "Yes" : "No");
+
+            console.log("Calling createPermitApplicationApi...");
             const result = await createPermitApplicationApi(formData, token);
+            console.log("API call completed, result:", result);
 
             if (result.success) {
                 setMessage({ text: "Permit application submitted successfully!", type: MessageBarType.success });
@@ -370,7 +348,7 @@ const PermitApplication: React.FC = () => {
                     Permit Application
                 </Text>
                 <Text variant="medium" className={styles.subtitle}>
-                    Complete the form below to submit your building permit application
+                    Complete the form below to submit your permit application
                 </Text>
             </div>
 
@@ -428,10 +406,9 @@ const PermitApplication: React.FC = () => {
 
                     <Stack tokens={{ childrenGap: 15 }} className={styles.formGroup}>
                         <TextField
-                            label="Applicant Name *"
+                            label="Applicant Name"
                             value={formData.applicantName}
                             onChange={(_, value) => handleInputChange("applicantName", value)}
-                            required
                             className={styles.field}
                         />
 
@@ -451,11 +428,10 @@ const PermitApplication: React.FC = () => {
                         />
 
                         <TextField
-                            label="Request Date *"
+                            label="Request Date"
                             value={formData.requestDate}
                             onChange={(_, value) => handleInputChange("requestDate", value)}
                             type="date"
-                            required
                             className={styles.field}
                         />
                     </Stack>
@@ -469,25 +445,19 @@ const PermitApplication: React.FC = () => {
                     <Separator />
 
                     <Stack tokens={{ childrenGap: 15 }} className={styles.formGroup}>
-                        <div className={styles.fieldWithButton}>
-                            <TextField
-                                label="Job Address *"
-                                value={formData.jobAddress}
-                                onChange={(_, value) => handleInputChange("jobAddress", value)}
-                                required
-                                className={styles.fieldGrow}
-                                onBlur={e => handleValidateAddress(e.target.value)}
-                            />
-                            <DefaultButton text="Validate" onClick={() => handleValidateAddress(formData.jobAddress)} className={styles.validateButton} />
-                        </div>
+                        <TextField
+                            label="Job Address"
+                            value={formData.jobAddress}
+                            onChange={(_, value) => handleInputChange("jobAddress", value)}
+                            className={styles.field}
+                        />
 
                         <div className={styles.fieldWithButton}>
                             <TextField
-                                label="Job Name *"
+                                label="Job Name"
                                 value={formData.jobName}
                                 onChange={(_, value) => handleInputChange("jobName", value)}
                                 placeholder="e.g. Temp Electrical setup"
-                                required
                                 className={styles.fieldGrow}
                             />
                             <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("jobName")} className={styles.validateButton} />
@@ -532,11 +502,10 @@ const PermitApplication: React.FC = () => {
 
                     <Stack tokens={{ childrenGap: 15 }} className={styles.formGroup}>
                         <Dropdown
-                            label="Category of Work *"
+                            label="Category of Work"
                             selectedKey={formData.categoryOfWork}
                             options={categoryOfWorkOptions}
                             onChange={(_, option) => handleInputChange("categoryOfWork", option?.key)}
-                            required
                             className={styles.field}
                         />
 
@@ -646,7 +615,7 @@ const PermitApplication: React.FC = () => {
                         />
 
                         <TextField
-                            label="Related Building Permit Number"
+                            label="Related Permit Number"
                             value={formData.relatedBuildingPermitNumber}
                             onChange={(_, value) => handleInputChange("relatedBuildingPermitNumber", value)}
                             className={styles.field}

@@ -1,9 +1,13 @@
-import { PermitApplication, PermitApplicationResponse, AutoFillUserData, AddressValidationResponse, TradesmanData } from "./permitModels";
+import { PermitApplication, PermitApplicationResponse, AutoFillUserData, TradesmanData } from "./permitModels";
 import { getHeaders } from "./api";
 
 const BACKEND_URI = "";
 
 export async function createPermitApplicationApi(permitApplication: PermitApplication, idToken: string | undefined): Promise<PermitApplicationResponse> {
+    console.log("=== FRONTEND API CALL ===");
+    console.log("Creating permit application:", permitApplication);
+    console.log("API endpoint:", `${BACKEND_URI}/api/permit/create`);
+
     const headers = await getHeaders(idToken);
     const response = await fetch(`${BACKEND_URI}/api/permit/create`, {
         method: "POST",
@@ -11,11 +15,15 @@ export async function createPermitApplicationApi(permitApplication: PermitApplic
         body: JSON.stringify({ permitApplication })
     });
 
+    console.log("Response status:", response.status);
+    console.log("Response ok:", response.ok);
+
     if (!response.ok) {
         throw new Error(`Creating permit application failed: ${response.statusText}`);
     }
 
     const dataResponse: PermitApplicationResponse = await response.json();
+    console.log("Response data:", dataResponse);
     return dataResponse;
 }
 
@@ -32,22 +40,6 @@ export async function getAutoFillDataApi(idToken: string | undefined): Promise<A
 
     const dataResponse: AutoFillUserData = await response.json();
     return dataResponse;
-}
-
-export async function validateAddressApi(address: string, idToken: string | undefined): Promise<boolean> {
-    const headers = await getHeaders(idToken);
-    const response = await fetch(`${BACKEND_URI}/api/permit/validate/address`, {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ address })
-    });
-
-    if (!response.ok) {
-        throw new Error(`Address validation failed: ${response.statusText}`);
-    }
-
-    const dataResponse: AddressValidationResponse = await response.json();
-    return dataResponse.isValid;
 }
 
 export async function getTradesmanDataApi(tradesmanId: string, idToken: string | undefined): Promise<TradesmanData | null> {

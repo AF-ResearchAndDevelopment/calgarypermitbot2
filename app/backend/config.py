@@ -34,3 +34,8 @@ CONFIG_AGENTIC_RETRIEVAL_ENABLED = "agentic_retrieval"
 CONFIG_COSMOS_HISTORY_CLIENT = "cosmos_history_client"
 CONFIG_COSMOS_HISTORY_CONTAINER = "cosmos_history_container"
 CONFIG_COSMOS_HISTORY_VERSION = "cosmos_history_version"
+
+# Permit Applications Cosmos DB Configuration
+CONFIG_PERMIT_APPLICATIONS_COSMOS_ENABLED = "permit_applications_cosmos_enabled"
+CONFIG_COSMOS_PERMIT_CLIENT = "cosmos_permit_client"
+CONFIG_COSMOS_PERMIT_CONTAINER = "cosmos_permit_container"

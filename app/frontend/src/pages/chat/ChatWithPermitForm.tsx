@@ -51,7 +51,7 @@ import {
     PermitFee,
     Document
 } from "../../api/permitModels";
-import { createPermitApplicationApi, getAutoFillDataApi, validateAddressApi, getTradesmanDataApi, downloadPermitApplicationApi } from "../../api/permitApi";
+import { createPermitApplicationApi, getAutoFillDataApi, getTradesmanDataApi, downloadPermitApplicationApi } from "../../api/permitApi";
 import { Answer, AnswerError, AnswerLoading } from "../../components/Answer";
 import { QuestionInput } from "../../components/QuestionInput";
 import { ExampleList } from "../../components/Example";
@@ -259,24 +259,6 @@ const ChatWithPermitForm = () => {
         }
     };
 
-    const handleValidateAddress = async (address: string) => {
-        if (!address.trim()) return;
-
-        try {
-            const token = await getToken(instance);
-            const isValid = await validateAddressApi(address, token);
-
-            if (!isValid) {
-                setPermitMessage({ text: "Address validation failed. Please verify the address.", type: MessageBarType.warning });
-            } else {
-                setPermitMessage({ text: "Address validated successfully", type: MessageBarType.success });
-            }
-        } catch (error) {
-            console.error("Address validation failed:", error);
-            setPermitMessage({ text: "Address validation failed", type: MessageBarType.error });
-        }
-    };
-
     const handleTradesmanLookup = async (tradesmanId: string) => {
         if (!tradesmanId.trim()) return;
 
@@ -475,6 +457,37 @@ const ChatWithPermitForm = () => {
         getConfig();
     }, []);
 
+    const handleSubmitPermitApplication = async () => {
+        console.log("=== CHAT SUBMIT BUTTON CLICKED ===");
+        console.log("handleSubmitPermitApplication function invoked");
+        console.log("Form data:", formData);
+
+        try {
+            setIsPermitLoading(true);
+            setPermitMessage(null);
+
+            console.log("Getting token...");
+            const token = await getToken(instance);
+            console.log("Token obtained:", token ? "Yes" : "No");
+
+            console.log("Calling createPermitApplicationApi...");
+            const result = await createPermitApplicationApi(formData, token);
+            console.log("API call completed, result:", result);
+
+            if (result.success) {
+                setPermitMessage({ text: "Permit application submitted successfully!", type: MessageBarType.success });
+                // Reset form or redirect as needed
+            } else {
+                setPermitMessage({ text: result.message || "Failed to submit application", type: MessageBarType.error });
+            }
+        } catch (error) {
+            console.error("Failed to submit permit application:", error);
+            setPermitMessage({ text: "Failed to submit permit application", type: MessageBarType.error });
+        } finally {
+            setIsPermitLoading(false);
+        }
+    };
+
     return (
         <div className={styles.container}>
             <Helmet>
@@ -502,8 +515,8 @@ const ChatWithPermitForm = () => {
                             {!lastQuestionRef.current ? (
                                 <div className={styles.chatEmptyState}>
                                     <img src={appLogo} className={styles.chatIcon} aria-hidden="true" />
-                                    <h1 className={styles.chatEmptyStateTitle}>Building Permit Assistant</h1>
-                                    <h2 className={styles.chatEmptyStateSubtitle}>Ask questions about building permits or use the form on the right</h2>
+                                    <h1 className={styles.chatEmptyStateTitle}>Permit Assistant</h1>
+                                    <h2 className={styles.chatEmptyStateSubtitle}>Ask questions about permits or use the form on the right</h2>
                                     <ExampleList onExampleClicked={makeApiRequest} useGPT4V={false} />
                                 </div>
                             ) : (
@@ -543,7 +556,7 @@ const ChatWithPermitForm = () => {
                             <div className={styles.chatInput}>
                                 <QuestionInput
                                     clearOnSend
-                                    placeholder="Ask about building permits..."
+                                    placeholder="Ask about permits..."
                                     disabled={isLoading}
                                     onSend={makeApiRequest}
                                     showSpeechInput={showSpeechInput}
@@ -683,9 +696,7 @@ const ChatWithPermitForm = () => {
                                             onChange={(_, value) => handleInputChange("jobAddress", value)}
                                             required
                                             style={{ flex: 1 }}
-                                            onBlur={e => handleValidateAddress(e.target.value)}
                                         />
-                                        <DefaultButton text="Validate" onClick={() => handleValidateAddress(formData.jobAddress)} />
                                     </div>
 
                                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -877,7 +888,7 @@ const ChatWithPermitForm = () => {
 
                                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                                         <TextField
-                                            label="Related Building Permit Number"
+                                            label="Related Permit Number"
                                             value={formData.relatedBuildingPermitNumber}
                                             onChange={(_, value) => handleInputChange("relatedBuildingPermitNumber", value)}
                                             style={{ flex: 1 }}
@@ -1101,7 +1112,7 @@ const ChatWithPermitForm = () => {
                                 <Stack horizontal horizontalAlign="center" tokens={{ childrenGap: 16 }}>
                                     <PrimaryButton
                                         text="Submit Permit Application"
-                                        onClick={() => {}}
+                                        onClick={handleSubmitPermitApplication}
                                         disabled={isPermitLoading}
                                         style={{ minWidth: "200px" }}
                                     />

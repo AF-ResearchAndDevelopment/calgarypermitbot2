@@ -4,27 +4,35 @@ Building Permit Application API endpoints
 import io
 import json
 import logging
+import os
+import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional, Union
 
 from docx import Document
 from quart import Blueprint, current_app, jsonify, request, send_file
 from azure.cosmos import exceptions
+from azure.cosmos.aio import ContainerProxy, CosmosClient
+from azure.identity.aio import AzureDeveloperCliCredential, ManagedIdentityCredential
 
 from decorators import authenticated
 from error import error_response
+from config import (
+    CONFIG_CREDENTIAL,
+    CONFIG_PERMIT_APPLICATIONS_COSMOS_ENABLED,
+    CONFIG_COSMOS_PERMIT_CLIENT,
+    CONFIG_COSMOS_PERMIT_CONTAINER
+)
 
 # Create a blueprint for permit-related endpoints
 permit_bp = Blueprint("permit", __name__, url_prefix="/api/permit")
 
 class PermitApplicationService:
-    """Service class for managing permit applications"""
+    """Service class for managing permit applications with Cosmos DB integration"""
     
     def __init__(self):
-        # In a real implementation, you would connect to a database
-        # For now, we'll use in-memory storage as a demo
-        self.permit_applications = {}
+        # Tradesman database for demo purposes
         self.tradesman_database = {
             "T001": {
                 "id": "T001",
@@ -57,13 +65,23 @@ class PermitApplicationService:
             }
         }
     
+    def _get_cosmos_container(self) -> Optional[ContainerProxy]:
+        """Get the Cosmos DB container for permit applications"""
+        try:
+            if not current_app.config.get(CONFIG_PERMIT_APPLICATIONS_COSMOS_ENABLED):
+                return None
+            return current_app.config.get(CONFIG_COSMOS_PERMIT_CONTAINER)
+        except Exception as e:
+            logging.error(f"Error getting Cosmos container: {str(e)}")
+            return None
+    
     def generate_permit_number(self) -> str:
         """Generate a unique permit number"""
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         random_part = str(uuid.uuid4())[:8].upper()
         return f"PE{timestamp}{random_part}"
     
-    def validate_address(self, address: str) -> Dict[str, Any]:
+    def validate_address(self, address: str) -> dict[str, Any]:
         """Validate a Calgary address"""
         # In a real implementation, this would integrate with Calgary's address validation service
         # For demo purposes, we'll do basic validation
@@ -92,11 +110,11 @@ class PermitApplicationService:
                 ]
             }
     
-    def get_tradesman_data(self, tradesman_id: str) -> Optional[Dict[str, Any]]:
+    def get_tradesman_data(self, tradesman_id: str) -> Optional[dict[str, Any]]:
         """Get tradesman data from the database"""
         return self.tradesman_database.get(tradesman_id)
     
-    def calculate_permit_fees(self, permit_type: str, total_job_cost: float) -> List[Dict[str, Any]]:
+    def calculate_permit_fees(self, permit_type: str, total_job_cost: float) -> list[dict[str, Any]]:
         """Calculate permit fees based on permit type and job cost"""
         fees = []
         today = datetime.now().strftime("%Y-%m-%d")
@@ -143,19 +161,28 @@ class PermitApplicationService:
         
         return fees
     
-    def create_permit_application(self, permit_data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-        """Create a new permit application"""
+    async def create_permit_application(self, permit_data: dict[str, Any], user_id: str) -> dict[str, Any]:
+        """Create a new permit application and save to Cosmos DB"""
         try:
+            logging.info("=== BACKEND: Creating permit application ===")
+            logging.info(f"User ID: {user_id}")
+            logging.info(f"Input permit data: {permit_data}")
+            
             # Generate permit number if not provided
             if not permit_data.get("permitNumber"):
                 permit_data["permitNumber"] = self.generate_permit_number()
             
+            logging.info(f"Generated permit number: {permit_data['permitNumber']}")
+            
             # Add system fields
-            permit_data["id"] = str(uuid.uuid4())
+            permit_data["id"] = permit_data["permitNumber"]  # Use permit number as document ID
+            permit_data["user_id"] = user_id  # Partition key
+            permit_data["type"] = "permit_application"  # Document type for queries
             permit_data["createdDate"] = datetime.now().isoformat()
             permit_data["lastModifiedDate"] = datetime.now().isoformat()
             permit_data["createdBy"] = user_id
             permit_data["lastModifiedBy"] = user_id
+            permit_data["timestamp"] = int(time.time() * 1000)
             
             # Calculate fees
             permit_fees = self.calculate_permit_fees(
@@ -179,8 +206,29 @@ class PermitApplicationService:
             if "documents" not in permit_data:
                 permit_data["documents"] = []
             
-            # Store the application
-            self.permit_applications[permit_data["permitNumber"]] = permit_data
+            logging.info(f"Final permit data before save: {permit_data}")
+            
+            # Try to save to Cosmos DB, fallback to in-memory if not available
+            container = self._get_cosmos_container()
+            logging.info(f"Cosmos container available: {container is not None}")
+            
+            if container:
+                try:
+                    logging.info("Attempting to save to Cosmos DB...")
+                    # Use upsert to handle both create and update scenarios
+                    await container.upsert_item(permit_data)
+                    logging.info(f"SUCCESS: Permit application {permit_data['permitNumber']} saved to Cosmos DB")
+                except exceptions.CosmosHttpResponseError as e:
+                    logging.error(f"COSMOS ERROR: Failed to save permit application to Cosmos DB: {str(e)}")
+                    # Return success with warning - data is still in memory for this request
+                    return {
+                        "success": True,
+                        "message": "Permit application created successfully (database unavailable)",
+                        "permitApplication": permit_data,
+                        "permitNumber": permit_data["permitNumber"]
+                    }
+            else:
+                logging.warning("Cosmos DB not available, permit application saved in memory only")
             
             return {
                 "success": True,
@@ -196,27 +244,54 @@ class PermitApplicationService:
                 "message": f"Failed to create permit application: {str(e)}"
             }
     
-    def get_permit_application(self, permit_number: str) -> Optional[Dict[str, Any]]:
-        """Get a permit application by permit number"""
-        return self.permit_applications.get(permit_number)
+    async def get_permit_application(self, permit_number: str, user_id: str = None) -> Optional[dict[str, Any]]:
+        """Get a permit application by permit number from Cosmos DB"""
+        try:
+            container = self._get_cosmos_container()
+            if container and user_id:
+                try:
+                    # Query by permit number (document id) and user_id (partition key)
+                    item = await container.read_item(
+                        item=permit_number,
+                        partition_key=user_id
+                    )
+                    return item
+                except exceptions.CosmosResourceNotFoundError:
+                    logging.info(f"Permit application {permit_number} not found in Cosmos DB")
+                    return None
+                except exceptions.CosmosHttpResponseError as e:
+                    logging.error(f"Failed to retrieve permit application from Cosmos DB: {str(e)}")
+                    return None
+            else:
+                logging.warning("Cosmos DB not available for permit retrieval")
+                return None
+        except Exception as e:
+            logging.error(f"Error getting permit application: {str(e)}")
+            return None
     
-    def update_permit_application(self, permit_data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-        """Update an existing permit application"""
+    async def update_permit_application(self, permit_data: dict[str, Any], user_id: str) -> dict[str, Any]:
+        """Update an existing permit application in Cosmos DB"""
         try:
             permit_number = permit_data.get("permitNumber")
-            if not permit_number or permit_number not in self.permit_applications:
+            if not permit_number:
                 return {
                     "success": False,
-                    "message": "Permit application not found"
+                    "message": "Permit number is required for updates"
                 }
             
             # Update system fields
             permit_data["lastModifiedDate"] = datetime.now().isoformat()
             permit_data["lastModifiedBy"] = user_id
+            permit_data["user_id"] = user_id  # Ensure partition key is set
+            permit_data["id"] = permit_number  # Ensure document ID is set
+            permit_data["type"] = "permit_application"
             
-            # Add update activity
-            if "permitActivities" not in permit_data:
-                permit_data["permitActivities"] = self.permit_applications[permit_number].get("permitActivities", [])
+            # Try to get existing application first to preserve existing activities
+            existing_app = await self.get_permit_application(permit_number, user_id)
+            if existing_app:
+                permit_data["permitActivities"] = existing_app.get("permitActivities", [])
+            else:
+                permit_data["permitActivities"] = []
             
             permit_data["permitActivities"].append({
                 "id": str(uuid.uuid4()),
@@ -226,8 +301,24 @@ class PermitApplicationService:
                 "performedBy": user_id
             })
             
-            # Update the application
-            self.permit_applications[permit_number] = permit_data
+            # Try to save to Cosmos DB
+            container = self._get_cosmos_container()
+            if container:
+                try:
+                    await container.upsert_item(permit_data)
+                    logging.info(f"Permit application {permit_number} updated in Cosmos DB")
+                except exceptions.CosmosHttpResponseError as e:
+                    logging.error(f"Failed to update permit application in Cosmos DB: {str(e)}")
+                    return {
+                        "success": False,
+                        "message": f"Failed to update permit application: {str(e)}"
+                    }
+            else:
+                logging.warning("Cosmos DB not available for permit update")
+                return {
+                    "success": False,
+                    "message": "Database unavailable for updates"
+                }
             
             return {
                 "success": True,
@@ -242,7 +333,7 @@ class PermitApplicationService:
                 "message": f"Failed to update permit application: {str(e)}"
             }
     
-    def get_auto_fill_data_for_field(self, field_name: str, auth_claims: Dict[str, Any]) -> str:
+    def get_auto_fill_data_for_field(self, field_name: str, auth_claims: dict[str, Any]) -> str:
         """Get auto-fill data for a specific field based on field name"""
         user_name = auth_claims.get("name", "")
         user_email = auth_claims.get("email", "")
@@ -426,10 +517,64 @@ class PermitApplicationService:
 # Initialize the service
 permit_service = PermitApplicationService()
 
+@permit_bp.before_app_serving
+async def init_permit_applications_cosmos():
+    """Initialize Cosmos DB client and container for permit applications"""
+    USE_PERMIT_APPLICATIONS_COSMOS = os.getenv("USE_PERMIT_APPLICATIONS_COSMOS", "").lower() == "true"
+    AZURE_COSMOSDB_ACCOUNT = os.getenv("AZURE_COSMOSDB_ACCOUNT")
+    AZURE_PERMIT_APPLICATIONS_DATABASE = os.getenv("AZURE_PERMIT_APPLICATIONS_DATABASE", "permits")
+    AZURE_PERMIT_APPLICATIONS_CONTAINER = os.getenv("AZURE_PERMIT_APPLICATIONS_CONTAINER", "applications")
+
+    azure_credential: Union[AzureDeveloperCliCredential, ManagedIdentityCredential] = current_app.config[
+        CONFIG_CREDENTIAL
+    ]
+
+    if USE_PERMIT_APPLICATIONS_COSMOS:
+        current_app.logger.info("USE_PERMIT_APPLICATIONS_COSMOS is true, setting up CosmosDB client for permit applications")
+        if not AZURE_COSMOSDB_ACCOUNT:
+            raise ValueError("AZURE_COSMOSDB_ACCOUNT must be set when USE_PERMIT_APPLICATIONS_COSMOS is true")
+        if not AZURE_PERMIT_APPLICATIONS_DATABASE:
+            raise ValueError("AZURE_PERMIT_APPLICATIONS_DATABASE must be set when USE_PERMIT_APPLICATIONS_COSMOS is true")
+        if not AZURE_PERMIT_APPLICATIONS_CONTAINER:
+            raise ValueError("AZURE_PERMIT_APPLICATIONS_CONTAINER must be set when USE_PERMIT_APPLICATIONS_COSMOS is true")
+        
+        # Create Cosmos client and get container reference
+        cosmos_client = CosmosClient(
+            url=f"https://{AZURE_COSMOSDB_ACCOUNT}.documents.azure.com:443/", 
+            credential=azure_credential
+        )
+        cosmos_db = cosmos_client.get_database_client(AZURE_PERMIT_APPLICATIONS_DATABASE)
+        cosmos_container = cosmos_db.get_container_client(AZURE_PERMIT_APPLICATIONS_CONTAINER)
+
+        # Store in app config
+        current_app.config[CONFIG_COSMOS_PERMIT_CLIENT] = cosmos_client
+        current_app.config[CONFIG_COSMOS_PERMIT_CONTAINER] = cosmos_container
+        current_app.config[CONFIG_PERMIT_APPLICATIONS_COSMOS_ENABLED] = True
+        
+        current_app.logger.info(f"Permit applications Cosmos DB initialized: {AZURE_COSMOSDB_ACCOUNT}/{AZURE_PERMIT_APPLICATIONS_DATABASE}/{AZURE_PERMIT_APPLICATIONS_CONTAINER}")
+    else:
+        current_app.config[CONFIG_PERMIT_APPLICATIONS_COSMOS_ENABLED] = False
+        current_app.logger.info("Permit applications Cosmos DB disabled, using in-memory storage")
+
+
+@permit_bp.after_app_serving
+async def close_permit_applications_cosmos():
+    """Close Cosmos DB client for permit applications"""
+    if current_app.config.get(CONFIG_COSMOS_PERMIT_CLIENT):
+        cosmos_client: CosmosClient = current_app.config[CONFIG_COSMOS_PERMIT_CLIENT]
+        await cosmos_client.close()
+
 @permit_bp.route("/create", methods=["POST"])
 @authenticated
-async def create_permit_application(auth_claims: Dict[str, Any]):
+async def create_permit_application(auth_claims: dict[str, Any]):
     """Create a new permit application"""
+
+    print("=== PERMIT API CREATE ENDPOINT CALLED ===")
+    print(f"Auth claims: {auth_claims}")
+    print(f"Request method: {request.method}")
+    print(f"Request URL: {request.url}")
+    print(f"Request headers: {dict(request.headers)}")
+    
     try:
         if not request.is_json:
             return jsonify({"error": "Request must be JSON"}), 415
@@ -441,7 +586,8 @@ async def create_permit_application(auth_claims: Dict[str, Any]):
             return jsonify({"error": "Permit application data is required"}), 400
         
         user_id = auth_claims.get("oid", "anonymous")
-        result = permit_service.create_permit_application(permit_data, user_id)
+        result = await permit_service.create_permit_application(permit_data, user_id)
+        print(result)
         
         if result["success"]:
             return jsonify(result), 201
@@ -453,10 +599,11 @@ async def create_permit_application(auth_claims: Dict[str, Any]):
 
 @permit_bp.route("/<permit_number>", methods=["GET"])
 @authenticated
-async def get_permit_application(auth_claims: Dict[str, Any], permit_number: str):
+async def get_permit_application(auth_claims: dict[str, Any], permit_number: str):
     """Get a permit application by permit number"""
     try:
-        permit_data = permit_service.get_permit_application(permit_number)
+        user_id = auth_claims.get("oid", "anonymous")
+        permit_data = await permit_service.get_permit_application(permit_number, user_id)
         
         if permit_data:
             return jsonify(permit_data), 200
@@ -468,7 +615,7 @@ async def get_permit_application(auth_claims: Dict[str, Any], permit_number: str
 
 @permit_bp.route("/update", methods=["PUT"])
 @authenticated
-async def update_permit_application(auth_claims: Dict[str, Any]):
+async def update_permit_application(auth_claims: dict[str, Any]):
     """Update an existing permit application"""
     try:
         if not request.is_json:
@@ -481,7 +628,7 @@ async def update_permit_application(auth_claims: Dict[str, Any]):
             return jsonify({"error": "Permit application data is required"}), 400
         
         user_id = auth_claims.get("oid", "anonymous")
-        result = permit_service.update_permit_application(permit_data, user_id)
+        result = await permit_service.update_permit_application(permit_data, user_id)
         
         if result["success"]:
             return jsonify(result), 200
@@ -493,7 +640,7 @@ async def update_permit_application(auth_claims: Dict[str, Any]):
 
 @permit_bp.route("/autofill/user", methods=["GET"])
 @authenticated
-async def get_autofill_user_data(auth_claims: Dict[str, Any]):
+async def get_autofill_user_data(auth_claims: dict[str, Any]):
     """Get user data for auto-filling permit application"""
 
     print("Fetching user data for auto-fill", auth_claims)
@@ -517,7 +664,7 @@ async def get_autofill_user_data(auth_claims: Dict[str, Any]):
 
 @permit_bp.route("/autofill/field", methods=["POST"])
 @authenticated
-async def get_autofill_field_data(auth_claims: Dict[str, Any]):
+async def get_autofill_field_data(auth_claims: dict[str, Any]):
     """Get auto-fill data for a specific field"""
 
     print("Fetching auto-fill data for field", auth_claims)
@@ -541,27 +688,57 @@ async def get_autofill_field_data(auth_claims: Dict[str, Any]):
 
 @permit_bp.route("/validate/address", methods=["POST"])
 @authenticated
-async def validate_address(auth_claims: Dict[str, Any]):
+async def validate_address(auth_claims: dict[str, Any]):
     """Validate a Calgary address"""
+    
+    print("=== ADDRESS VALIDATION ENDPOINT CALLED ===")
+    print(f"Auth claims: {auth_claims}")
+    print(f"Request method: {request.method}")
+    print(f"Request URL: {request.url}")
+    
     try:
         if not request.is_json:
             return jsonify({"error": "Request must be JSON"}), 415
         
         request_json = await request.get_json()
+        print(f"Request JSON: {request_json}")
+        
+        # Get address from request - handle both string and object formats
         address = request_json.get("address")
         
-        if not address:
+        # If address is an object, try to extract the string value
+        if isinstance(address, dict):
+            # Common patterns for address objects
+            address_str = (
+                address.get("formatted_address") or 
+                address.get("address") or 
+                address.get("value") or 
+                address.get("text") or
+                str(address)
+            )
+        elif isinstance(address, str):
+            address_str = address
+        else:
+            address_str = str(address) if address is not None else ""
+        
+        print(f"Extracted address string: '{address_str}'")
+        
+        if not address_str or not address_str.strip():
             return jsonify({"error": "Address is required"}), 400
         
-        validation_result = permit_service.validate_address(address)
+        # Validate the address string
+        validation_result = permit_service.validate_address(address_str.strip())
+        print(f"Validation result: {validation_result}")
+        
         return jsonify(validation_result), 200
         
     except Exception as e:
+        print(f"Error in address validation: {str(e)}")
         return error_response(e, "/api/permit/validate/address")
 
 @permit_bp.route("/tradesman/<tradesman_id>", methods=["GET"])
 @authenticated
-async def get_tradesman_data(auth_claims: Dict[str, Any], tradesman_id: str):
+async def get_tradesman_data(auth_claims: dict[str, Any], tradesman_id: str):
     """Get tradesman data by ID"""
     try:
         tradesman_data = permit_service.get_tradesman_data(tradesman_id)
@@ -576,7 +753,7 @@ async def get_tradesman_data(auth_claims: Dict[str, Any], tradesman_id: str):
 
 @permit_bp.route("/search", methods=["GET"])
 @authenticated
-async def search_permit_applications(auth_claims: Dict[str, Any]):
+async def search_permit_applications(auth_claims: dict[str, Any]):
     """Search permit applications"""
     try:
         query = request.args.get("q", "")
@@ -600,7 +777,7 @@ async def search_permit_applications(auth_claims: Dict[str, Any]):
 
 @permit_bp.route("/inspection/book", methods=["POST"])
 @authenticated
-async def book_inspection(auth_claims: Dict[str, Any]):
+async def book_inspection(auth_claims: dict[str, Any]):
     """Book an inspection for a permit"""
     try:
         if not request.is_json:
@@ -644,7 +821,7 @@ async def book_inspection(auth_claims: Dict[str, Any]):
 
 @permit_bp.route("/fees/calculate", methods=["POST"])
 @authenticated
-async def calculate_fees(auth_claims: Dict[str, Any]):
+async def calculate_fees(auth_claims: dict[str, Any]):
     """Calculate permit fees based on permit type and job cost"""
     try:
         if not request.is_json:
@@ -720,3 +897,59 @@ async def download_current_permit_application(auth_claims: dict[str, Any]):
         
     except Exception as e:
         return error_response(e, "/api/permit/download/current")
+
+    async def search_permit_applications(self, user_id: str, filters: dict[str, Any] = None) -> list[dict[str, Any]]:
+        """Search permit applications for a user with optional filters"""
+        try:
+            container = self._get_cosmos_container()
+            if not container:
+                logging.warning("Cosmos DB not available for permit search")
+                return []
+            
+            # Build query based on filters
+            query = "SELECT * FROM c WHERE c.user_id = @user_id AND c.type = @type"
+            parameters = [
+                {"name": "@user_id", "value": user_id},
+                {"name": "@type", "value": "permit_application"}
+            ]
+            
+            # Add optional filters
+            if filters:
+                if filters.get("permitType"):
+                    query += " AND c.permitType = @permitType"
+                    parameters.append({"name": "@permitType", "value": filters["permitType"]})
+                
+                if filters.get("status"):
+                    query += " AND c.status = @status"
+                    parameters.append({"name": "@status", "value": filters["status"]})
+                
+                if filters.get("dateFrom"):
+                    query += " AND c.createdDate >= @dateFrom"
+                    parameters.append({"name": "@dateFrom", "value": filters["dateFrom"]})
+                
+                if filters.get("dateTo"):
+                    query += " AND c.createdDate <= @dateTo"
+                    parameters.append({"name": "@dateTo", "value": filters["dateTo"]})
+            
+            # Add ordering
+            query += " ORDER BY c.timestamp DESC"
+            
+            try:
+                items = []
+                async for item in container.query_items(
+                    query=query,
+                    parameters=parameters,
+                    partition_key=user_id
+                ):
+                    items.append(item)
+                
+                logging.info(f"Found {len(items)} permit applications for user {user_id}")
+                return items
+                
+            except exceptions.CosmosHttpResponseError as e:
+                logging.error(f"Failed to search permit applications in Cosmos DB: {str(e)}")
+                return []
+                
+        except Exception as e:
+            logging.error(f"Error searching permit applications: {str(e)}")
+            return []

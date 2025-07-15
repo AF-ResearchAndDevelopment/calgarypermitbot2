@@ -164,13 +164,6 @@ export interface AutoFillUserData {
     userId?: string;
 }
 
-export interface AddressValidationResponse {
-    isValid: boolean;
-    formattedAddress?: string;
-    suggestions?: string[];
-    error?: string;
-}
-
 export interface TradesmanData {
     id: string;
     name: string;

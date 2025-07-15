@@ -2,8 +2,27 @@
     box-sizing: border-box;
 }
 
+:root {
+    /* Calgary city brand colors */
+    --calgary-red: #D52B1E;
+    --calgary-dark-red: #B22317;
+    --calgary-light-red: #E55347;
+    --calgary-white: #FFFFFF;
+    --calgary-light-gray: #F8F8F8;
+    --calgary-gray: #E0E0E0;
+    --calgary-dark-gray: #666666;
+    --calgary-text: #333333;
+    
+    /* Primary brand color assignments */
+    --primary-color: var(--calgary-red);
+    --primary-hover: var(--calgary-dark-red);
+    --primary-light: var(--calgary-light-red);
+    --background-color: var(--calgary-light-gray);
+    --text-color: var(--calgary-text);
+}
+
 html {
-    background: #f2f2f2;
+    background: var(--background-color);
     font-size: 12px; /* Root font size for 320px width screens */
     font-family:
         "Segoe UI",
