@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime
@@ -514,6 +515,189 @@ class PermitApplicationService:
         doc_stream.seek(0)
         return doc_stream
 
+    def process_speech_for_field(self, field_name: str, speech_text: str, auth_claims: dict[str, Any]) -> str:
+        """Process speech transcription for specific field types"""
+        
+        # Clean up the speech text
+        cleaned_text = speech_text.strip()
+        
+        # Field-specific processing
+        if field_name in ["applicantName", "qualifiedTradesmanName", "onsiteContactName"]:
+            # For name fields, capitalize each word
+            return ' '.join(word.capitalize() for word in cleaned_text.split())
+        
+        elif field_name in ["applicantEmail", "cqtEmailAddress", "contactEmail"]:
+            # For email fields, convert to lowercase and handle common speech patterns
+            email_text = cleaned_text.lower()
+            # Handle common speech patterns for email
+            email_text = email_text.replace(" at ", "@")
+            email_text = email_text.replace(" dot ", ".")
+            email_text = email_text.replace("gmail", "gmail.com")
+            email_text = email_text.replace("outlook", "outlook.com")
+            email_text = email_text.replace("yahoo", "yahoo.com")
+            email_text = email_text.replace("hotmail", "hotmail.com")
+            # Remove spaces that might have been added during speech recognition
+            email_text = email_text.replace(" ", "")
+            return email_text
+        
+        elif field_name in ["applicantPhone", "contactPhoneNumber", "cqtContactNumber"]:
+            # For phone fields, extract numbers and format
+            import re
+            # Extract digits from speech
+            digits = re.sub(r'[^\d]', '', cleaned_text)
+            if len(digits) == 10:
+                # Format as (XXX) XXX-XXXX
+                return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+            elif len(digits) == 11 and digits.startswith('1'):
+                # Handle 1-XXX-XXX-XXXX format
+                return f"1-({digits[1:4]}) {digits[4:7]}-{digits[7:]}"
+            else:
+                # Return cleaned digits if format doesn't match standard patterns
+                return digits
+        
+        elif field_name == "jobAddress":
+            # For address fields, capitalize appropriately and handle common patterns
+            address_text = cleaned_text.title()
+            # Handle common address abbreviations
+            address_text = address_text.replace(" Street", " St")
+            address_text = address_text.replace(" Avenue", " Ave")
+            address_text = address_text.replace(" Boulevard", " Blvd")
+            address_text = address_text.replace(" Drive", " Dr")
+            address_text = address_text.replace(" Road", " Rd")
+            address_text = address_text.replace(" Place", " Pl")
+            address_text = address_text.replace(" Southwest", " SW")
+            address_text = address_text.replace(" Southeast", " SE")
+            address_text = address_text.replace(" Northwest", " NW")
+            address_text = address_text.replace(" Northeast", " NE")
+            # Ensure Calgary, AB is added if not present
+            if "calgary" not in address_text.lower():
+                address_text += ", Calgary, AB"
+            return address_text
+        
+        elif field_name in ["totalJobCost", "amps", "volts"]:
+            # For numeric fields, extract numbers
+            import re
+            # Extract first number from speech
+            numbers = re.findall(r'\d+(?:\.\d+)?', cleaned_text)
+            if numbers:
+                return numbers[0]
+            else:
+                # Try to convert written numbers to digits
+                number_words = {
+                    'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+                    'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9',
+                    'ten': '10', 'twenty': '20', 'thirty': '30', 'forty': '40',
+                    'fifty': '50', 'sixty': '60', 'seventy': '70', 'eighty': '80',
+                    'ninety': '90', 'hundred': '100', 'thousand': '1000'
+                }
+                
+                words = cleaned_text.lower().split()
+                for word in words:
+                    if word in number_words:
+                        return number_words[word]
+                
+                return cleaned_text
+        
+        elif field_name == "phase":
+            # For phase field, convert text to number
+            if "single" in cleaned_text.lower() or "one" in cleaned_text.lower():
+                return "1"
+            elif "three" in cleaned_text.lower():
+                return "3"
+            else:
+                # Extract number
+                import re
+                numbers = re.findall(r'\d+', cleaned_text)
+                return numbers[0] if numbers else cleaned_text
+        
+        elif field_name in ["wire", "electricalService"]:
+            # For material/service fields, capitalize first letter
+            return cleaned_text.capitalize()
+        
+        elif field_name == "categoryOfWork":
+            # Map speech to category options
+            text_lower = cleaned_text.lower()
+            if "residential" in text_lower or "home" in text_lower or "house" in text_lower:
+                return "residential"
+            elif "commercial" in text_lower or "business" in text_lower or "office" in text_lower:
+                return "commercial"
+            elif "industrial" in text_lower or "factory" in text_lower or "plant" in text_lower:
+                return "industrial"
+            else:
+                return "residential"  # default
+        
+        elif field_name == "typeOfWork":
+            # Map speech to work type options
+            text_lower = cleaned_text.lower()
+            if "new" in text_lower or "construction" in text_lower or "build" in text_lower:
+                return "newBuilt"
+            elif "renovation" in text_lower or "remodel" in text_lower or "upgrade" in text_lower:
+                return "renovation"
+            elif "addition" in text_lower or "extend" in text_lower:
+                return "addition"
+            elif "improvement" in text_lower or "improve" in text_lower:
+                return "improvement"
+            else:
+                return "improvement"  # default
+        
+        elif field_name == "serviceType":
+            # Map speech to service type options
+            text_lower = cleaned_text.lower()
+            if "main" in text_lower or "primary" in text_lower:
+                return "main"
+            elif "sub" in text_lower or "secondary" in text_lower:
+                return "sub"
+            elif "temporary" in text_lower or "temp" in text_lower:
+                return "temporary"
+            else:
+                return "main"  # default
+        
+        elif field_name == "undergroundConductor":
+            # Convert speech to boolean
+            text_lower = cleaned_text.lower()
+            if any(word in text_lower for word in ["yes", "true", "underground", "buried"]):
+                return "true"
+            elif any(word in text_lower for word in ["no", "false", "above", "overhead"]):
+                return "false"
+            else:
+                return "false"  # default
+        
+        elif field_name == "requestDate":
+            # Handle date speech - for now, just return current date
+            # In a production system, you'd want more sophisticated date parsing
+            from datetime import datetime
+            return datetime.now().strftime("%Y-%m-%d")
+        
+        elif field_name == "permitStatus":
+            # Map speech to permit status options
+            text_lower = cleaned_text.lower()
+            if "new" in text_lower:
+                return "new"
+            elif "submit" in text_lower or "submitted" in text_lower:
+                return "submitted"
+            elif "review" in text_lower or "reviewing" in text_lower:
+                return "review"
+            elif "approve" in text_lower or "approved" in text_lower:
+                return "approved"
+            else:
+                return "new"  # default
+        
+        elif field_name == "permitType":
+            # Map speech to permit type options
+            text_lower = cleaned_text.lower()
+            if "electrical" in text_lower or "electric" in text_lower:
+                return "electrical"
+            elif "building" in text_lower:
+                return "building"
+            elif "plumbing" in text_lower:
+                return "plumbing"
+            else:
+                return "electrical"  # default
+        
+        else:
+            # For other fields, return cleaned text with proper capitalization
+            return cleaned_text.title() if cleaned_text else ""
+
 # Initialize the service
 permit_service = PermitApplicationService()
 
@@ -541,7 +725,7 @@ async def init_permit_applications_cosmos():
         # Create Cosmos client and get container reference
         cosmos_client = CosmosClient(
             url=f"https://{AZURE_COSMOSDB_ACCOUNT}.documents.azure.com:443/", 
-            credential=azure_credential
+            credential=azure_credential,feature_flags=["enableAadDataPlane"]
         )
         cosmos_db = cosmos_client.get_database_client(AZURE_PERMIT_APPLICATIONS_DATABASE)
         cosmos_container = cosmos_db.get_container_client(AZURE_PERMIT_APPLICATIONS_CONTAINER)
@@ -953,3 +1137,45 @@ async def download_current_permit_application(auth_claims: dict[str, Any]):
         except Exception as e:
             logging.error(f"Error searching permit applications: {str(e)}")
             return []
+
+@permit_bp.route("/autofill/speech", methods=["POST"])
+@authenticated
+async def autofill_from_speech(auth_claims: dict[str, Any]):
+    """Auto-fill field data from speech transcription"""
+
+    print("=== SPEECH AUTO-FILL ENDPOINT CALLED ===")
+    print(f"Auth claims: {auth_claims}")
+    
+    try:
+        if not request.is_json:
+            return jsonify({"error": "Request must be JSON"}), 415
+        
+        request_json = await request.get_json()
+        print(f"Request JSON: {request_json}")
+        
+        field_name = request_json.get("fieldName")
+        speech_text = request_json.get("speechText")
+        
+        if not field_name:
+            return jsonify({"error": "Field name is required"}), 400
+        
+        if not speech_text:
+            return jsonify({"error": "Speech text is required"}), 400
+        
+        print(f"Processing speech auto-fill for field '{field_name}' with text: '{speech_text}'")
+        
+        # Process the speech text based on field type
+        processed_value = permit_service.process_speech_for_field(field_name, speech_text, auth_claims)
+        
+        print(f"Processed value: '{processed_value}'")
+        
+        return jsonify({
+            "fieldName": field_name,
+            "originalText": speech_text,
+            "processedValue": processed_value,
+            "success": True
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in speech auto-fill: {str(e)}")
+        return error_response(e, "/api/permit/autofill/speech")

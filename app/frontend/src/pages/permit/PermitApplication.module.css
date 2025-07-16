@@ -2,7 +2,7 @@
     max-width: 1200px;
     margin: 0 auto;
     padding: 24px;
-    background-color: #ffffff;
+    background-color: var(--calgary-white);
 }
 
 .header {
@@ -11,12 +11,13 @@
 }
 
 .title {
-    color: #323130;
+    color: var(--primary-color);
     margin-bottom: 8px;
+    font-weight: 700;
 }
 
 .subtitle {
-    color: #605e5c;
+    color: var(--calgary-dark-gray);
 }
 
 .messageBar {
@@ -68,6 +69,18 @@
     display: flex;
     gap: 12px;
     align-items: end;
+}
+
+.fieldWithSpeech {
+    display: flex;
+    gap: 8px;
+    align-items: end;
+}
+
+.speechButtonGroup {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .fieldGrow {

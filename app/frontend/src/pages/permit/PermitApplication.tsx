@@ -33,6 +33,7 @@ import {
     Document
 } from "../../api/permitModels";
 import { createPermitApplicationApi, getAutoFillDataApi, getTradesmanDataApi, calculatePermitFeesApi, getAutoFillFieldDataApi } from "../../api/permitApi";
+import SpeechInput from "../../components/SpeechInput/SpeechInput";
 
 interface AutoFillData {
     applicantName?: string;
@@ -337,6 +338,49 @@ const PermitApplication: React.FC = () => {
         }
     };
 
+    const handleSpeechResult = async (fieldName: keyof PermitApplicationModel, transcript: string) => {
+        try {
+            const token = await getToken(instance);
+
+            // Call the backend speech processing API
+            const response = await fetch("/api/permit/autofill/speech", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    speechText: transcript,
+                    fieldName: fieldName
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const processedValue = data.processedValue;
+
+                // Handle different field types appropriately
+                let finalValue: any = processedValue;
+
+                if (fieldName === "totalJobCost") {
+                    finalValue = parseFloat(processedValue) || 0;
+                } else if (fieldName === "phase") {
+                    finalValue = parseInt(processedValue) || 1;
+                } else if (fieldName === "undergroundConductor") {
+                    finalValue = processedValue.toLowerCase() === "true";
+                }
+
+                handleInputChange(fieldName, finalValue);
+                setMessage({ text: `Speech input processed for ${fieldName}!`, type: MessageBarType.success });
+            } else {
+                throw new Error("Failed to process speech");
+            }
+        } catch (error) {
+            console.error(`Failed to process speech for ${fieldName}:`, error);
+            setMessage({ text: `Failed to process speech for ${fieldName}`, type: MessageBarType.error });
+        }
+    };
+
     return (
         <div className={styles.permitApplication}>
             <Helmet>
@@ -371,21 +415,30 @@ const PermitApplication: React.FC = () => {
                     <Stack tokens={{ childrenGap: 15 }} className={styles.formGroup}>
                         <TextField label="Permit Number" value={formData.permitNumber} disabled className={styles.field} />
 
-                        <Dropdown
-                            label="Permit Status"
-                            selectedKey={formData.permitStatus}
-                            options={permitStatusOptions}
-                            onChange={(_, option) => handleInputChange("permitStatus", option?.key)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <Dropdown
+                                label="Permit Status"
+                                selectedKey={formData.permitStatus}
+                                options={permitStatusOptions}
+                                onChange={(_, option) => handleInputChange("permitStatus", option?.key)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("permitStatus", transcript)}
+                                placeholder="Say permit status"
+                            />
+                        </div>
 
-                        <Dropdown
-                            label="Permit Type"
-                            selectedKey={formData.permitType}
-                            options={permitTypeOptions}
-                            onChange={(_, option) => handleInputChange("permitType", option?.key)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <Dropdown
+                                label="Permit Type"
+                                selectedKey={formData.permitType}
+                                options={permitTypeOptions}
+                                onChange={(_, option) => handleInputChange("permitType", option?.key)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("permitType", transcript)} placeholder="Say permit type" />
+                        </div>
                     </Stack>
                 </div>
 
@@ -395,45 +448,66 @@ const PermitApplication: React.FC = () => {
                         <Text variant="xLarge" className={styles.sectionTitle}>
                             Applicant Information
                         </Text>
-                        <DefaultButton
-                            text="Auto-fill from User Profile"
-                            onClick={handleAutoFillUserData}
-                            disabled={isAutoFilling}
-                            className={styles.autoFillButton}
-                        />
+                        <div className={styles.speechButtonGroup}>
+                            <SpeechInput
+                                onTranscript={(transcript: string) => {
+                                    // Handle multiple fields from user profile speech
+                                    const words = transcript.toLowerCase().split(" ");
+                                    if (words.includes("name") || words.includes("profile")) {
+                                        handleAutoFillUserData();
+                                    }
+                                }}
+                                placeholder="Say 'fill my profile' or 'my name'"
+                            />
+                        </div>
                     </div>
                     <Separator />
 
                     <Stack tokens={{ childrenGap: 15 }} className={styles.formGroup}>
-                        <TextField
-                            label="Applicant Name"
-                            value={formData.applicantName}
-                            onChange={(_, value) => handleInputChange("applicantName", value)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Applicant Name"
+                                value={formData.applicantName}
+                                onChange={(_, value) => handleInputChange("applicantName", value)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("applicantName", transcript)} placeholder="Say your name" />
+                        </div>
 
-                        <TextField
-                            label="Applicant Email"
-                            value={formData.applicantEmail}
-                            onChange={(_, value) => handleInputChange("applicantEmail", value)}
-                            type="email"
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Applicant Email"
+                                value={formData.applicantEmail}
+                                onChange={(_, value) => handleInputChange("applicantEmail", value)}
+                                type="email"
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("applicantEmail", transcript)} placeholder="Say your email" />
+                        </div>
 
-                        <TextField
-                            label="Applicant Phone"
-                            value={formData.applicantPhone}
-                            onChange={(_, value) => handleInputChange("applicantPhone", value)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Applicant Phone"
+                                value={formData.applicantPhone}
+                                onChange={(_, value) => handleInputChange("applicantPhone", value)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("applicantPhone", transcript)}
+                                placeholder="Say your phone number"
+                            />
+                        </div>
 
-                        <TextField
-                            label="Request Date"
-                            value={formData.requestDate}
-                            onChange={(_, value) => handleInputChange("requestDate", value)}
-                            type="date"
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Request Date"
+                                value={formData.requestDate}
+                                onChange={(_, value) => handleInputChange("requestDate", value)}
+                                type="date"
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("requestDate", transcript)} placeholder="Say the date" />
+                        </div>
                     </Stack>
                 </div>
 
@@ -445,14 +519,17 @@ const PermitApplication: React.FC = () => {
                     <Separator />
 
                     <Stack tokens={{ childrenGap: 15 }} className={styles.formGroup}>
-                        <TextField
-                            label="Job Address"
-                            value={formData.jobAddress}
-                            onChange={(_, value) => handleInputChange("jobAddress", value)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Job Address"
+                                value={formData.jobAddress}
+                                onChange={(_, value) => handleInputChange("jobAddress", value)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("jobAddress", transcript)} placeholder="Say the address" />
+                        </div>
 
-                        <div className={styles.fieldWithButton}>
+                        <div className={styles.fieldWithSpeech}>
                             <TextField
                                 label="Job Name"
                                 value={formData.jobName}
@@ -460,12 +537,12 @@ const PermitApplication: React.FC = () => {
                                 placeholder="e.g. Temp Electrical setup"
                                 className={styles.fieldGrow}
                             />
-                            <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("jobName")} className={styles.validateButton} />
+                            <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("jobName", transcript)} placeholder="Say job name" />
                         </div>
 
                         <TextField label="Job Number" value={formData.jobNumber} disabled className={styles.field} />
 
-                        <div className={styles.fieldWithButton}>
+                        <div className={styles.fieldWithSpeech}>
                             <TextField
                                 label="Job Description"
                                 value={formData.jobDescription}
@@ -475,10 +552,13 @@ const PermitApplication: React.FC = () => {
                                 rows={3}
                                 className={styles.fieldGrow}
                             />
-                            <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("jobDescription")} className={styles.validateButton} />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("jobDescription", transcript)}
+                                placeholder="Describe the job"
+                            />
                         </div>
 
-                        <div className={styles.fieldWithButton}>
+                        <div className={styles.fieldWithSpeech}>
                             <TextField
                                 label="Specific Location/Additional Info"
                                 value={formData.specificLocation}
@@ -488,7 +568,10 @@ const PermitApplication: React.FC = () => {
                                 rows={2}
                                 className={styles.fieldGrow}
                             />
-                            <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("specificLocation")} className={styles.validateButton} />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("specificLocation", transcript)}
+                                placeholder="Say location details"
+                            />
                         </div>
                     </Stack>
                 </div>
@@ -501,21 +584,30 @@ const PermitApplication: React.FC = () => {
                     <Separator />
 
                     <Stack tokens={{ childrenGap: 15 }} className={styles.formGroup}>
-                        <Dropdown
-                            label="Category of Work"
-                            selectedKey={formData.categoryOfWork}
-                            options={categoryOfWorkOptions}
-                            onChange={(_, option) => handleInputChange("categoryOfWork", option?.key)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <Dropdown
+                                label="Category of Work"
+                                selectedKey={formData.categoryOfWork}
+                                options={categoryOfWorkOptions}
+                                onChange={(_, option) => handleInputChange("categoryOfWork", option?.key)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("categoryOfWork", transcript)}
+                                placeholder="Say work category"
+                            />
+                        </div>
 
-                        <Dropdown
-                            label="Type of Work"
-                            selectedKey={formData.typeOfWork}
-                            options={typeOfWorkOptions}
-                            onChange={(_, option) => handleInputChange("typeOfWork", option?.key)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <Dropdown
+                                label="Type of Work"
+                                selectedKey={formData.typeOfWork}
+                                options={typeOfWorkOptions}
+                                onChange={(_, option) => handleInputChange("typeOfWork", option?.key)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("typeOfWork", transcript)} placeholder="Say work type" />
+                        </div>
                     </Stack>
                 </div>
 
@@ -527,66 +619,84 @@ const PermitApplication: React.FC = () => {
                     <Separator />
 
                     <Stack tokens={{ childrenGap: 15 }} className={styles.formGroup}>
-                        <TextField
-                            label="Electrical Service"
-                            value={formData.electricalService}
-                            onChange={(_, value) => handleInputChange("electricalService", value)}
-                            placeholder="usage"
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Electrical Service"
+                                value={formData.electricalService}
+                                onChange={(_, value) => handleInputChange("electricalService", value)}
+                                placeholder="usage"
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("electricalService", transcript)}
+                                placeholder="Say electrical service"
+                            />
+                        </div>
 
-                        <Checkbox
-                            label="Underground Conductor 1/0 or larger"
-                            checked={formData.undergroundConductor}
-                            onChange={(_, checked) => handleInputChange("undergroundConductor", checked)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <Checkbox
+                                label="Underground Conductor 1/0 or larger"
+                                checked={formData.undergroundConductor}
+                                onChange={(_, checked) => handleInputChange("undergroundConductor", checked)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("undergroundConductor", transcript)}
+                                placeholder="Say yes or no"
+                            />
+                        </div>
 
-                        <Dropdown
-                            label="Service Type"
-                            selectedKey={formData.serviceType}
-                            options={serviceTypeOptions}
-                            onChange={(_, option) => handleInputChange("serviceType", option?.key)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <Dropdown
+                                label="Service Type"
+                                selectedKey={formData.serviceType}
+                                options={serviceTypeOptions}
+                                onChange={(_, option) => handleInputChange("serviceType", option?.key)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("serviceType", transcript)} placeholder="Say service type" />
+                        </div>
 
-                        <Dropdown
-                            label="Phase"
-                            selectedKey={formData.phase}
-                            options={phaseOptions}
-                            onChange={(_, option) => handleInputChange("phase", option?.key)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <Dropdown
+                                label="Phase"
+                                selectedKey={formData.phase}
+                                options={phaseOptions}
+                                onChange={(_, option) => handleInputChange("phase", option?.key)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("phase", transcript)} placeholder="Say phase number" />
+                        </div>
 
                         <div className={styles.inlineFields}>
-                            <div className={styles.fieldWithButton}>
+                            <div className={styles.fieldWithSpeech}>
                                 <TextField
                                     label="Wire"
                                     value={formData.wire}
                                     onChange={(_, value) => handleInputChange("wire", value)}
                                     className={styles.inlineField}
                                 />
-                                <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("wire")} className={styles.validateButton} />
+                                <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("wire", transcript)} placeholder="Say wire type" />
                             </div>
 
-                            <div className={styles.fieldWithButton}>
+                            <div className={styles.fieldWithSpeech}>
                                 <TextField
                                     label="Volts"
                                     value={formData.volts}
                                     onChange={(_, value) => handleInputChange("volts", value)}
                                     className={styles.inlineField}
                                 />
-                                <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("volts")} className={styles.validateButton} />
+                                <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("volts", transcript)} placeholder="Say voltage" />
                             </div>
 
-                            <div className={styles.fieldWithButton}>
+                            <div className={styles.fieldWithSpeech}>
                                 <TextField
                                     label="Amps"
                                     value={formData.amps}
                                     onChange={(_, value) => handleInputChange("amps", value)}
                                     className={styles.inlineField}
                                 />
-                                <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("amps")} className={styles.validateButton} />
+                                <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("amps", transcript)} placeholder="Say amperage" />
                             </div>
                         </div>
                     </Stack>
@@ -600,35 +710,56 @@ const PermitApplication: React.FC = () => {
                     <Separator />
 
                     <Stack tokens={{ childrenGap: 15 }} className={styles.formGroup}>
-                        <TextField
-                            label="Application Categories"
-                            value={formData.applicationCategories}
-                            onChange={(_, value) => handleInputChange("applicationCategories", value)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Application Categories"
+                                value={formData.applicationCategories}
+                                onChange={(_, value) => handleInputChange("applicationCategories", value)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("applicationCategories", transcript)}
+                                placeholder="Say application categories"
+                            />
+                        </div>
 
-                        <TextField
-                            label="Relocatable Structure Number"
-                            value={formData.relocatableStructureNumber}
-                            onChange={(_, value) => handleInputChange("relocatableStructureNumber", value)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Relocatable Structure Number"
+                                value={formData.relocatableStructureNumber}
+                                onChange={(_, value) => handleInputChange("relocatableStructureNumber", value)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("relocatableStructureNumber", transcript)}
+                                placeholder="Say structure number"
+                            />
+                        </div>
 
-                        <TextField
-                            label="Related Permit Number"
-                            value={formData.relatedBuildingPermitNumber}
-                            onChange={(_, value) => handleInputChange("relatedBuildingPermitNumber", value)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Related Permit Number"
+                                value={formData.relatedBuildingPermitNumber}
+                                onChange={(_, value) => handleInputChange("relatedBuildingPermitNumber", value)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("relatedBuildingPermitNumber", transcript)}
+                                placeholder="Say permit number"
+                            />
+                        </div>
 
-                        <TextField
-                            label="Total Job Cost"
-                            value={formData.totalJobCost.toString()}
-                            onChange={(_, value) => handleInputChange("totalJobCost", parseFloat(value || "0"))}
-                            type="number"
-                            prefix="$"
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Total Job Cost"
+                                value={formData.totalJobCost.toString()}
+                                onChange={(_, value) => handleInputChange("totalJobCost", parseFloat(value || "0"))}
+                                type="number"
+                                prefix="$"
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput onTranscript={(transcript: string) => handleSpeechResult("totalJobCost", transcript)} placeholder="Say the cost" />
+                        </div>
                     </Stack>
                 </div>
 
@@ -640,7 +771,7 @@ const PermitApplication: React.FC = () => {
                     <Separator />
 
                     <Stack tokens={{ childrenGap: 15 }} className={styles.formGroup}>
-                        <div className={styles.fieldWithButton}>
+                        <div className={styles.fieldWithSpeech}>
                             <TextField
                                 label="Qualified Tradesman ID"
                                 value={formData.qualifiedTradesmanId}
@@ -648,56 +779,91 @@ const PermitApplication: React.FC = () => {
                                 className={styles.fieldGrow}
                                 onBlur={e => handleTradesmanLookup(e.target.value)}
                             />
-                            <DefaultButton
-                                text="Lookup"
-                                onClick={() => handleTradesmanLookup(formData.qualifiedTradesmanId || "")}
-                                className={styles.validateButton}
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("qualifiedTradesmanId", transcript)}
+                                placeholder="Say tradesman ID"
                             />
                         </div>
 
-                        <TextField
-                            label="Qualified Tradesman Name"
-                            value={formData.qualifiedTradesmanName}
-                            onChange={(_, value) => handleInputChange("qualifiedTradesmanName", value)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Qualified Tradesman Name"
+                                value={formData.qualifiedTradesmanName}
+                                onChange={(_, value) => handleInputChange("qualifiedTradesmanName", value)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("qualifiedTradesmanName", transcript)}
+                                placeholder="Say tradesman name"
+                            />
+                        </div>
 
-                        <TextField
-                            label="CQT Contact Number"
-                            value={formData.cqtContactNumber}
-                            onChange={(_, value) => handleInputChange("cqtContactNumber", value)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="CQT Contact Number"
+                                value={formData.cqtContactNumber}
+                                onChange={(_, value) => handleInputChange("cqtContactNumber", value)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("cqtContactNumber", transcript)}
+                                placeholder="Say contact number"
+                            />
+                        </div>
 
-                        <TextField
-                            label="CQT Email Address"
-                            value={formData.cqtEmailAddress}
-                            onChange={(_, value) => handleInputChange("cqtEmailAddress", value)}
-                            type="email"
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="CQT Email Address"
+                                value={formData.cqtEmailAddress}
+                                onChange={(_, value) => handleInputChange("cqtEmailAddress", value)}
+                                type="email"
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("cqtEmailAddress", transcript)}
+                                placeholder="Say email address"
+                            />
+                        </div>
 
-                        <TextField
-                            label="On-site Contact Name"
-                            value={formData.onsiteContactName}
-                            onChange={(_, value) => handleInputChange("onsiteContactName", value)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="On-site Contact Name"
+                                value={formData.onsiteContactName}
+                                onChange={(_, value) => handleInputChange("onsiteContactName", value)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("onsiteContactName", transcript)}
+                                placeholder="Say contact name"
+                            />
+                        </div>
 
-                        <TextField
-                            label="Contact Phone Number"
-                            value={formData.contactPhoneNumber}
-                            onChange={(_, value) => handleInputChange("contactPhoneNumber", value)}
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Contact Phone Number"
+                                value={formData.contactPhoneNumber}
+                                onChange={(_, value) => handleInputChange("contactPhoneNumber", value)}
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("contactPhoneNumber", transcript)}
+                                placeholder="Say phone number"
+                            />
+                        </div>
 
-                        <TextField
-                            label="Contact Email"
-                            value={formData.contactEmail}
-                            onChange={(_, value) => handleInputChange("contactEmail", value)}
-                            type="email"
-                            className={styles.field}
-                        />
+                        <div className={styles.fieldWithSpeech}>
+                            <TextField
+                                label="Contact Email"
+                                value={formData.contactEmail}
+                                onChange={(_, value) => handleInputChange("contactEmail", value)}
+                                type="email"
+                                className={styles.fieldGrow}
+                            />
+                            <SpeechInput
+                                onTranscript={(transcript: string) => handleSpeechResult("contactEmail", transcript)}
+                                placeholder="Say email address"
+                            />
+                        </div>
                     </Stack>
                 </div>
 

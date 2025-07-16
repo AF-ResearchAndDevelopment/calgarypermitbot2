@@ -222,7 +222,7 @@ async def setup_clients():
         if not AZURE_CHAT_HISTORY_CONTAINER:
             raise ValueError("AZURE_CHAT_HISTORY_CONTAINER must be set when USE_CHAT_HISTORY_COSMOS is true")
         cosmos_client = CosmosClient(
-            url=f"https://{AZURE_COSMOSDB_ACCOUNT}.documents.azure.com:443/", credential=azure_credential
+            url=f"https://{AZURE_COSMOSDB_ACCOUNT}.documents.azure.com:443/", credential=azure_credential,feature_flags=["enableAadDataPlane"]
         )
         cosmos_db = cosmos_client.get_database_client(AZURE_CHAT_HISTORY_DATABASE)
         cosmos_container = cosmos_db.get_container_client(AZURE_CHAT_HISTORY_CONTAINER)

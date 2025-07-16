@@ -540,6 +540,8 @@ const ChatWithPermitForm = () => {
                                                     onCitationClicked={setActiveCitation}
                                                     onThoughtProcessClicked={() => {}}
                                                     onSupportingContentClicked={() => {}}
+                                                    showSpeechOutputBrowser={showSpeechOutputBrowser}
+                                                    showSpeechOutputAzure={showSpeechOutputAzure}
                                                 />
                                             </div>
                                         </div>
