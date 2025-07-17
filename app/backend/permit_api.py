@@ -334,14 +334,124 @@ class PermitApplicationService:
                 "message": f"Failed to update permit application: {str(e)}"
             }
     
-    def get_auto_fill_data_for_field(self, field_name: str, auth_claims: dict[str, Any]) -> str:
-        """Get auto-fill data for a specific field based on field name"""
+    async def get_auto_fill_data_for_field(self, field_name: str, auth_claims: dict[str, Any], session_id: str = None) -> str:
+        """Get auto-fill data for a specific field based on field name from Cosmos DB metadata"""
         user_name = auth_claims.get("name", "")
         user_email = auth_claims.get("email", "")
         user_id = auth_claims.get("oid", "")
         
-        # Sample data for different fields - in a real implementation, 
-        # this would query databases, APIs, or user profiles
+        # First try to get data from Cosmos DB metadata
+        try:
+            from azure.cosmos import exceptions, CosmosClient
+            from quart import current_app
+            from config import (
+                CONFIG_COSMOS_PERMIT_CLIENT,
+                CONFIG_COSMOS_PERMIT_CONTAINER,
+                CONFIG_PERMIT_APPLICATIONS_COSMOS_ENABLED,
+            )
+            
+            if current_app.config[CONFIG_PERMIT_APPLICATIONS_COSMOS_ENABLED]:
+                cosmos_client: CosmosClient = current_app.config[CONFIG_COSMOS_PERMIT_CLIENT]
+                container = current_app.config[CONFIG_COSMOS_PERMIT_CONTAINER]
+                
+                if container:
+                    # Use provided session_id or default hardcoded one
+                    actual_session_id = "123456789"
+                    actual_user_id = "abcdef"  # This should be actual user_id in production
+                    
+                    try:
+                        # Try to read the specific session
+                        existing_item = await container.read_item(
+                            item=actual_session_id,
+                            partition_key="PE123456789"
+                        )
+                        
+                        if existing_item and "metadata" in existing_item:
+                            metadata = existing_item["metadata"]
+                            print(f"Found metadata in Cosmos DB: {metadata}")
+                            
+                            # Map field names to metadata keys
+                            field_mapping = {
+                                "jobDescription": "Job Description",
+                                "specificLocation": "Specific Location Info", 
+                                "jobAddress": "Job Address",
+                                "jobName": "Job Name",
+                                "applicantName": "Applicants",
+                                "applicantEmail": "Applicant Email",
+                                "requestDate": "Request Date",
+                                "categoryOfWork": "Category of Work",
+                                "typeOfWork": "Type of work",
+                                "electricalService": "Electrical Service",
+                                "serviceType": "Service Type",
+                                "phase": "Phase",
+                                "wire": "Wire",
+                                "volts": "Volts", 
+                                "amps": "Amps",
+                                "totalJobCost": "Total Job Cost",
+                                "applicationCategories": "Application Categories",
+                                "relocatableStructureNumber": "Relocatable Structure Number",
+                                "relatedBuildingPermitNumber": "Related Building Permit Number",
+                                "onsiteContactName": "On-site contact name",
+                                "contactPhoneNumber": "Contact phone number",
+                                "contactEmail": "Contact Email",
+                                "contactInformation": "Contact Information",
+                                "undergroundConductor": "Underground Conductor 1/0 or Larger"
+                            }
+                            
+                            # Get the mapped field name
+
+                            if 'Description' in field_name:
+                                field_name = 'jobDescription'
+                            if 'Location' in field_name:
+                                field_name = 'specificLocation'
+                            if 'Email' in field_name:
+                                field_name = 'contactEmail'
+                                
+                            #     metadata_key = field_mapping.get(field_name)
+                            #     print(f"Looking for field '{field_name}' mapped to key '{metadata_key}'")
+                            
+                            #     if metadata_key and metadata_key in metadata:
+                            #         cosmos_value = metadata[metadata_key]["Contact Email"]
+                            #         if cosmos_value and str(cosmos_value).strip():
+                            #             print(f"Found {field_name} in Cosmos DB metadata: {cosmos_value}")
+                            #             return str(cosmos_value)
+                            #         else:
+                            #             print(f"Empty value found for {field_name} in metadata")
+                            #     else:
+                            #         print(f"Key '{metadata_key}' not found in metadata. Available keys: {list(metadata.keys())}")
+
+                            metadata_key = field_mapping.get(field_name)
+                            metadata_key = field_name
+                            print(f"Looking for field '{field_name}' mapped to key '{metadata_key}'")
+                            
+                            if metadata_key and metadata_key in metadata:
+                                cosmos_value = metadata[metadata_key]
+                                if cosmos_value and str(cosmos_value).strip():
+                                    print(f"Found {field_name} in Cosmos DB metadata: {cosmos_value}")
+                                    return str(cosmos_value)
+                                else:
+                                    if 'Email' in field_name:
+                                        field_name = 'applicantEmail'
+                                        cosmos_value = metadata['applicantEmail']
+                                        return str(cosmos_value)
+                                    print(f"Empty value found for {field_name} in metadata")
+                            else:
+                                print(f"Key '{metadata_key}' not found in metadata. Available keys: {list(metadata.keys())}")
+                    
+                    except exceptions.CosmosResourceNotFoundError:
+                        print(f"No metadata found in Cosmos DB for session {actual_session_id}")
+                    except Exception as e:
+                        print(f"Error reading from Cosmos DB: {str(e)}")
+                else:
+                    print("Cosmos DB container not available")
+            else:
+                print("Cosmos DB is not enabled for permit applications")
+        
+        except Exception as e:
+            print(f"Error accessing Cosmos DB: {str(e)}")
+        
+        # Fallback to sample data if Cosmos DB data not available
+        print(f"Using fallback data for field: {field_name}")
         auto_fill_data = {
             # Applicant Information
             "applicantName": user_name,
@@ -351,8 +461,8 @@ class PermitApplicationService:
             # Job Information
             "jobAddress": "",  # Could come from user's recent addresses or favorites
             "jobName": "Electrical Installation Project",
-            "jobDescription": "Standard electrical installation work",
-            "specificLocation": "Main floor",
+            "jobDescription": "Installation of new electrical service panel, wiring for kitchen renovation including new outlets, GFCI protection, and lighting circuits. Work includes panel upgrade from 100A to 200A service.",
+            "specificLocation": "Main floor kitchen area, basement electrical panel room, and connecting circuits throughout main floor",
             
             # Electrical Details
             "electricalService": "Standard Service",
@@ -825,22 +935,59 @@ async def update_permit_application(auth_claims: dict[str, Any]):
 @permit_bp.route("/autofill/user", methods=["GET"])
 @authenticated
 async def get_autofill_user_data(auth_claims: dict[str, Any]):
-    """Get user data for auto-filling permit application"""
 
-    print("Fetching user data for auto-fill", auth_claims)
+    print("=== AUTOFILL USER ENDPOINT CALLED ===")
+    print(f"Auth claims: {auth_claims}")
     try:
-        # Extract user information from auth claims
-        user_data = {
-            "applicantName": auth_claims.get("name", "John Doe"),
-            "applicantEmail": auth_claims.get("email", "johndoe@example.com"),
-            "applicantPhone": "",  # Not typically available in auth claims
-            "userId": auth_claims.get("oid", "")
-        }
+        if not request.is_json:
+            print("ERROR: Request is not JSON")
+            return jsonify({"error": "Request must be JSON"}), 415
         
-        # In a real implementation, you might query a user profile database
-        # to get additional information like phone number, preferred address, etc.
+        request_json = await request.get_json()
+        print(f"Request JSON: {request_json}")
         
-        return jsonify(user_data), 200
+        field_name = request_json.get("fieldName")
+        session_id = request_json.get("sessionId")  # Optional session ID from frontend
+        if not field_name:
+            field_name = "applicantName"  # Default field if not provided
+        print(f"Field name: {field_name}, Session ID: {session_id}")
+        
+        if field_name in ["applicantName"]:
+            response_data = {"fieldName": field_name, "value": "John Doe"}
+            print(f"Returning response: {response_data}")
+        
+            return jsonify(response_data), 200
+        if not field_name:
+            print("ERROR: Field name is missing")
+            return jsonify({"error": "Field name is required"}), 400
+        
+        # Get auto-fill data based on field name
+        print(f"Calling get_auto_fill_data_for_field with field: {field_name}")
+        auto_fill_data = await permit_service.get_auto_fill_data_for_field(field_name, auth_claims, session_id)
+        
+        print(f"Auto-fill data retrieved: {auto_fill_data}")
+        
+        response_data = {"fieldName": field_name, "value": auto_fill_data}
+        print(f"Returning response: {response_data}")
+        
+        return jsonify(response_data), 200
+
+    # """Get user data for auto-filling permit application"""
+
+    # print("Fetching user data for auto-fill", auth_claims)
+    # try:
+    #     # Extract user information from auth claims
+    #     user_data = {
+    #         "applicantName": auth_claims.get("name", "John Doe"),
+    #         "applicantEmail": auth_claims.get("email", "johndoe@example.com"),
+    #         "applicantPhone": "",  # Not typically available in auth claims
+    #         "userId": auth_claims.get("oid", "")
+    #     }
+        
+    #     # In a real implementation, you might query a user profile database
+    #     # to get additional information like phone number, preferred address, etc.
+        
+    #     return jsonify(user_data), 200
         
     except Exception as e:
         return error_response(e, "/api/permit/autofill/user")
@@ -851,23 +998,38 @@ async def get_autofill_user_data(auth_claims: dict[str, Any]):
 async def get_autofill_field_data(auth_claims: dict[str, Any]):
     """Get auto-fill data for a specific field"""
 
-    print("Fetching auto-fill data for field", auth_claims)
+    print("=== AUTOFILL FIELD ENDPOINT CALLED ===")
+    print(f"Auth claims: {auth_claims}")
     try:
         if not request.is_json:
+            print("ERROR: Request is not JSON")
             return jsonify({"error": "Request must be JSON"}), 415
         
         request_json = await request.get_json()
+        print(f"Request JSON: {request_json}")
+        
         field_name = request_json.get("fieldName")
+        session_id = request_json.get("sessionId")  # Optional session ID from frontend
+        
+        print(f"Field name: {field_name}, Session ID: {session_id}")
         
         if not field_name:
+            print("ERROR: Field name is missing")
             return jsonify({"error": "Field name is required"}), 400
         
         # Get auto-fill data based on field name
-        auto_fill_data = permit_service.get_auto_fill_data_for_field(field_name, auth_claims)
+        print(f"Calling get_auto_fill_data_for_field with field: {field_name}")
+        auto_fill_data = await permit_service.get_auto_fill_data_for_field(field_name, auth_claims, session_id)
         
-        return jsonify({"fieldName": field_name, "value": auto_fill_data}), 200
+        print(f"Auto-fill data retrieved: {auto_fill_data}")
+        
+        response_data = {"fieldName": field_name, "value": auto_fill_data}
+        print(f"Returning response: {response_data}")
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
+        print(f"ERROR in autofill field endpoint: {str(e)}")
         return error_response(e, "/api/permit/autofill/field")
 
 @permit_bp.route("/validate/address", methods=["POST"])
@@ -1179,3 +1341,39 @@ async def autofill_from_speech(auth_claims: dict[str, Any]):
     except Exception as e:
         print(f"Error in speech auto-fill: {str(e)}")
         return error_response(e, "/api/permit/autofill/speech")
+
+@permit_bp.route("/autofill/test", methods=["GET"])
+@authenticated
+async def test_autofill(auth_claims: dict[str, Any]):
+    """Test endpoint to verify autofill functionality"""
+    print("=== AUTOFILL TEST ENDPOINT CALLED ===")
+    try:
+        # Test the autofill for jobDescription and specificLocation
+        test_results = {}
+        
+        for field in ["jobDescription", "specificLocation"]:
+            try:
+                value = await permit_service.get_auto_fill_data_for_field(field, auth_claims, "123456789")
+                test_results[field] = {
+                    "success": True,
+                    "value": value,
+                    "length": len(str(value)) if value else 0
+                }
+                print(f"Test {field}: SUCCESS - {value}")
+            except Exception as e:
+                test_results[field] = {
+                    "success": False,
+                    "error": str(e)
+                }
+                print(f"Test {field}: ERROR - {str(e)}")
+        
+        return jsonify({
+            "message": "Autofill test completed",
+            "results": test_results,
+            "auth_user": auth_claims.get("name", "Unknown"),
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        print(f"ERROR in autofill test: {str(e)}")
+        return jsonify({"error": str(e)}), 500

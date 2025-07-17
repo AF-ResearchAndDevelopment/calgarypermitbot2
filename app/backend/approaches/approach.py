@@ -419,6 +419,7 @@ class Approach(ABC):
         temperature: Optional[float] = None,
         n: Optional[int] = None,
         reasoning_effort: Optional[ChatCompletionReasoningEffort] = None,
+        json_format: Optional[bool] = False,
     ) -> Union[Awaitable[ChatCompletion], Awaitable[AsyncStream[ChatCompletionChunk]]]:
         if chatgpt_model in self.GPT_REASONING_MODELS:
             params: dict[str, Any] = {
@@ -443,6 +444,8 @@ class Approach(ABC):
             params["stream"] = True
             params["stream_options"] = {"include_usage": True}
 
+        if json_format:
+            params["response_format"] = {"type": "json_object"}
         params["tools"] = tools
 
         # Azure OpenAI takes the deployment name as the model name

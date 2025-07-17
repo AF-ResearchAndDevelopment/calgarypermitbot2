@@ -51,7 +51,13 @@ import {
     PermitFee,
     Document
 } from "../../api/permitModels";
-import { createPermitApplicationApi, getAutoFillDataApi, getTradesmanDataApi, downloadPermitApplicationApi } from "../../api/permitApi";
+import {
+    createPermitApplicationApi,
+    getAutoFillDataApi,
+    getAutoFillFieldDataApi,
+    getTradesmanDataApi,
+    downloadPermitApplicationApi
+} from "../../api/permitApi";
 import { Answer, AnswerError, AnswerLoading } from "../../components/Answer";
 import { QuestionInput } from "../../components/QuestionInput";
 import { ExampleList } from "../../components/Example";
@@ -280,6 +286,35 @@ const ChatWithPermitForm = () => {
         } catch (error) {
             console.error("Tradesman lookup failed:", error);
             setPermitMessage({ text: "Tradesman lookup failed", type: MessageBarType.error });
+        }
+    };
+
+    const handleAutoFillField = async (fieldName: string, formField: keyof PermitApplicationModel) => {
+        try {
+            console.log(`=== AUTOFILL TRIGGERED FOR ${fieldName} ===`);
+            const token = await getToken(instance);
+            console.log("Token obtained for autofill:", token ? "Yes" : "No");
+
+            // Get session ID from the chat history or generate one
+            const sessionId =
+                answers.length > 0 ? answers[answers.length - 1][1].session_state?.session_id || `chat_session_${Date.now()}` : `chat_session_${Date.now()}`;
+
+            console.log("Using session ID for autofill:", sessionId);
+
+            const autoFillData = await getAutoFillFieldDataApi(fieldName, token, sessionId);
+            console.log(`Autofill data received for ${fieldName}:`, autoFillData);
+
+            if (autoFillData && autoFillData.trim()) {
+                handleInputChange(formField, autoFillData);
+                console.log(`Successfully populated ${formField} with autofill data`);
+                setPermitMessage({ text: `${fieldName} auto-filled successfully`, type: MessageBarType.success });
+            } else {
+                console.warn(`No autofill data available for ${fieldName}`);
+                setPermitMessage({ text: `No autofill data available for ${fieldName}`, type: MessageBarType.warning });
+            }
+        } catch (error) {
+            console.error(`Error auto-filling ${fieldName}:`, error);
+            setPermitMessage({ text: `Failed to auto-fill ${fieldName}`, type: MessageBarType.error });
         }
     };
 
@@ -642,7 +677,7 @@ const ChatWithPermitForm = () => {
                                             required
                                             style={{ flex: 1 }}
                                         />
-                                        <DefaultButton text="Auto-fill" onClick={handleAutoFillUserData} />
+                                        <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("Applicant Name", "applicantName")} />
                                     </div>
 
                                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -653,7 +688,7 @@ const ChatWithPermitForm = () => {
                                             type="email"
                                             style={{ flex: 1 }}
                                         />
-                                        <DefaultButton text="Auto-fill" onClick={handleAutoFillUserData} />
+                                        <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("Applicant Email", "applicantEmail")} />
                                     </div>
 
                                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -663,7 +698,7 @@ const ChatWithPermitForm = () => {
                                             onChange={(_, value) => handleInputChange("applicantPhone", value)}
                                             style={{ flex: 1 }}
                                         />
-                                        <DefaultButton text="Auto-fill" onClick={handleAutoFillUserData} />
+                                        <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("Applicant Phone", "applicantPhone")} />
                                     </div>
 
                                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -710,7 +745,7 @@ const ChatWithPermitForm = () => {
                                             required
                                             style={{ flex: 1 }}
                                         />
-                                        <DefaultButton text="Auto-fill" onClick={() => {}} />
+                                        <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("Job Name", "jobName")} />
                                     </div>
 
                                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -728,7 +763,7 @@ const ChatWithPermitForm = () => {
                                             rows={3}
                                             style={{ flex: 1 }}
                                         />
-                                        <DefaultButton text="Auto-fill" onClick={() => {}} />
+                                        <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("Job Description", "jobDescription")} />
                                     </div>
 
                                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -741,7 +776,7 @@ const ChatWithPermitForm = () => {
                                             rows={2}
                                             style={{ flex: 1 }}
                                         />
-                                        <DefaultButton text="Auto-fill" onClick={() => {}} />
+                                        <DefaultButton text="Auto-fill" onClick={() => handleAutoFillField("Specific Location", "specificLocation")} />
                                     </div>
                                 </Stack>
                             </div>

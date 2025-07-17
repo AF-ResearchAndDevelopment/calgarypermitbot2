@@ -12,6 +12,7 @@ from openai.types.chat import (
     ChatCompletionToolParam,
 )
 
+import json
 from approaches.approach import DataPoints, ExtraInfo, ThoughtStep
 from approaches.chatapproach import ChatApproach
 from approaches.promptmanager import PromptManager
@@ -66,6 +67,7 @@ class ChatReadRetrieveReadApproach(ChatApproach):
         self.query_language = query_language
         self.query_speller = query_speller
         self.prompt_manager = prompt_manager
+        self.metadata_rewrite_prompt = self.prompt_manager.load_prompt("form_metadata_rewrite.prompty")
         self.query_rewrite_prompt = self.prompt_manager.load_prompt("chat_query_rewrite.prompty")
         self.query_rewrite_tools = self.prompt_manager.load_tools("chat_query_rewrite_tools.json")
         self.answer_prompt = self.prompt_manager.load_prompt("chat_answer_question.prompty")
@@ -147,6 +149,147 @@ class ChatReadRetrieveReadApproach(ChatApproach):
             self.query_rewrite_prompt, {"user_query": original_user_query, "past_messages": messages[:-1]}
         )
         tools: list[ChatCompletionToolParam] = self.query_rewrite_tools
+
+        # STEP 0: Check if user is providing form information
+
+        meta_information_messages = self.prompt_manager.render_prompt(
+            self.metadata_rewrite_prompt, {"user_query": original_user_query, "past_messages": messages[:-1]}
+        )
+
+        chat_completion = cast(
+            ChatCompletion,
+            await self.create_chat_completion(
+                self.chatgpt_deployment,
+                self.chatgpt_model,
+                messages=meta_information_messages,
+                json_format=True,
+                overrides=overrides,
+                response_token_limit=self.get_response_token_limit(
+                    self.chatgpt_model, 2000
+                ),  # Setting too low risks malformed JSON, setting too high may affect performance
+                temperature=0.0,  # Minimize creativity for search query generation
+                reasoning_effort="low",  # Minimize reasoning for search query generation
+            ),
+        )
+
+
+
+        print(chat_completion.choices[0].message.content)
+        if chat_completion.choices[0].message.content:  
+            metadata = json.loads(chat_completion.choices[0].message.content)
+            if metadata.get("Metadata") == "Yes":
+
+                # Import necessary modules for time and session handling
+                import time
+                
+                # Add this metadata to cosmos db with session id as key
+                from azure.cosmos.aio import ContainerProxy
+                from azure.cosmos import exceptions, CosmosClient
+                from azure.identity.aio import AzureDeveloperCliCredential, ManagedIdentityCredential
+                from quart import current_app
+                from config import (
+                    CONFIG_COSMOS_PERMIT_CLIENT,
+                    CONFIG_COSMOS_PERMIT_CONTAINER,
+                    CONFIG_PERMIT_APPLICATIONS_COSMOS_ENABLED,
+                )   
+                if not current_app.config[CONFIG_PERMIT_APPLICATIONS_COSMOS_ENABLED]:
+                    return ExtraInfo(
+                        DataPoints(text=["Permit applications Cosmos DB is not enabled."]),
+                        thoughts=[
+                            ThoughtStep(
+                                "Permit applications Cosmos DB is not enabled",
+                                [],
+                            )
+                        ],
+                    )
+                
+                cosmos_client: CosmosClient = current_app.config[CONFIG_COSMOS_PERMIT_CLIENT]
+                container: ContainerProxy = current_app.config[CONFIG_COSMOS_PERMIT_CONTAINER]
+                if not container:
+                    return ExtraInfo(
+                        DataPoints(text=["Permit applications Cosmos DB container is not available."]),
+                        thoughts=[
+                            ThoughtStep(
+                                "Permit applications Cosmos DB container is not available",
+                                [],
+                            )
+                        ],
+                    )   
+                
+                # Use session ID from overrides or generate one if not present
+                session_id = overrides.get("session_id", f"session_{auth_claims.get('oid', 'anonymous')}_{int(time.time())}")
+                user_id = auth_claims.get("oid", "anonymous")
+                session_id = "123456789"
+                user_id = "abcdef"
+                
+                # Prepare metadata document for upsert (create or update)
+                metadata_document = {
+                    "id": session_id,  # Use session ID as document ID
+                    "PermitNumber": "PE123456789",  # Example static value, replace with actual logic if needed
+                    "user_id": user_id,  # Partition key
+                    "type": "currentform",
+                    "metadata": metadata,
+                    "timestamp": int(time.time() * 1000),
+                    "version": "one",
+                    "created_date": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+                    "last_modified": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+                }
+                
+                try:
+                    # Check if entry already exists with this session ID
+                    try:
+                        existing_item = await container.read_item(
+                            item=session_id,
+                            partition_key="PE123456789"
+                        )
+                        print(f"Found existing metadata for session {session_id}, updating with new data")
+                        
+                        # Preserve created_date from existing item if it exists
+                        if "created_date" in existing_item:
+                            metadata_document["created_date"] = existing_item["created_date"]
+                        
+                        for key, value in existing_item['metadata'].items():
+                            if value is not None:
+                                metadata_document["metadata"][key] = value
+
+
+                    except exceptions.CosmosResourceNotFoundError:
+                        # Item doesn't exist, will be created
+                        print(f"No existing metadata found for session {session_id}, creating new entry")
+                    
+                    # Use upsert to either create new or update existing item
+                    await container.upsert_item(metadata_document)
+                    print(f"Successfully upserted metadata for session {session_id}")
+                    print(metadata_document)
+                    
+                    # Return the upserted metadata
+                    extra_info = ExtraInfo(
+                        DataPoints(text=[metadata_document]),
+                        thoughts=[
+                            ThoughtStep(
+                                "Upserted metadata into Cosmos DB (created or updated)",
+                                [metadata_document],
+                                {"session_id": session_id, "user_id": user_id},
+                            )
+                        ],
+                    )
+                    return extra_info
+                    
+                except exceptions.CosmosHttpResponseError as e:
+                    print(f"Failed to upsert metadata: {str(e)}")
+                    # Fall back to returning metadata without database storage
+                    extra_info = ExtraInfo(
+                        DataPoints(text=[metadata]),
+                        thoughts=[
+                            ThoughtStep(
+                                "Failed to upsert metadata into Cosmos DB, returning metadata only",
+                                [metadata],
+                                {"error": str(e), "session_id": session_id},
+                            )
+                        ],
+                    )
+                    return extra_info   
+        
 
         # STEP 1: Generate an optimized keyword search query based on the chat history and the last question
 

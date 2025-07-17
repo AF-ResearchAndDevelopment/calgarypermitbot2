@@ -155,22 +155,42 @@ export async function calculatePermitFeesApi(permitType: string, totalJobCost: n
     return dataResponse.fees || [];
 }
 
-export async function getAutoFillFieldDataApi(fieldName: string, idToken: string | undefined): Promise<string> {
+export async function getAutoFillFieldDataApi(fieldName: string, idToken: string | undefined, sessionId?: string): Promise<string> {
+    console.log(`=== API: Calling getAutoFillFieldDataApi for field: ${fieldName} ===`);
+
     const headers = await getHeaders(idToken);
+    const requestBody: any = { fieldName };
+
+    // Include session ID if provided
+    if (sessionId) {
+        requestBody.sessionId = sessionId;
+    }
+
+    console.log(`Request body:`, requestBody);
+    console.log(`Backend URI: ${BACKEND_URI}`);
+
     const response = await fetch(`${BACKEND_URI}/api/permit/autofill/field`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({
-            fieldName
-        })
+        body: JSON.stringify(requestBody)
     });
 
+    console.log(`Response status: ${response.status}`);
+    console.log(`Response OK: ${response.ok}`);
+
     if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`API Error: ${response.status} - ${response.statusText} - ${errorText}`);
         throw new Error(`Getting auto-fill field data failed: ${response.statusText}`);
     }
 
     const dataResponse = await response.json();
-    return dataResponse.value || "";
+    console.log(`API Response:`, dataResponse);
+
+    const value = dataResponse.value || "";
+    console.log(`Returning value: "${value}"`);
+
+    return value;
 }
 
 export async function downloadPermitApplicationApi(permitApplication: PermitApplication, idToken: string | undefined): Promise<Blob> {
